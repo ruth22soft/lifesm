@@ -138,7 +138,9 @@ int main(int argc,char **argv)
     for(t=0;t<maxiter && population[w_plot];t++)
     {
         /*Use currWorld to compute the updates and store it in nextWorld */
-      population[w_update] = 0;
+            
+     population[w_update] = 0;
+    #pragma omp parallel for collapse(2) reduction(+:population[w_update])
       for(i=1;i<nx-1;i++)
             for(j=1;j<ny-1;j++) {
 	      int nn = currWorld[i+1][j] + currWorld[i-1][j] + 
@@ -148,8 +150,21 @@ int main(int argc,char **argv)
 	      
 	      nextWorld[i][j] = currWorld[i][j] ? (nn == 2 || nn == 3) : (nn == 3);
 	      population[w_update] += nextWorld[i][j];
-                   
-           }
+            }
+      #pragma omp parallel
+    {
+        // Print the number of threads being used in the parallel region
+        int num_threads = omp_get_num_threads();
+        int thread_id = omp_get_thread_num();
+        
+        if (thread_id == 0) {
+            printf("Number of threads: %d\n", num_threads);
+        }
+
+        // Each thread prints its ID (only once to avoid too much output)
+        printf("Thread %d is processing\n", thread_id);
+        
+    }
 
       
       
