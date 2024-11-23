@@ -13,7 +13,7 @@
 #include <math.h>
 #include <assert.h>
 #include <string.h>
-
+#include <omp.h> // OpenMP library for parallelization
 #define MATCH(s) (!strcmp(argv[ac], (s)))
 
 int MeshPlot(int t, int m, int n, char **mesh);
@@ -44,7 +44,7 @@ int main(int argc,char **argv)
     long seedVal = 0;
     int game = 0;
     int s_step = 0;
-    int numthreads = 1;
+    int numthreads = 2;
     int disable_display= 0; 
 
     /* Over-ride with command-line input parameters (if any) */
@@ -134,40 +134,62 @@ int main(int argc,char **argv)
     /* Perform updates for maxiter iterations */
     double t0 = getTime();
     int t;
-
-    for(t=0;t<maxiter && population[w_plot];t++)
+    #pragma omp parallel
     {
-        /*Use currWorld to compute the updates and store it in nextWorld */
-      population[w_update] = 0;
-      for(i=1;i<nx-1;i++)
-            for(j=1;j<ny-1;j++) {
-	      int nn = currWorld[i+1][j] + currWorld[i-1][j] + 
-		currWorld[i][j+1] + currWorld[i][j-1] + 
-		currWorld[i+1][j+1] + currWorld[i-1][j-1] + 
-		currWorld[i-1][j+1] + currWorld[i+1][j-1];
-	      
-	      nextWorld[i][j] = currWorld[i][j] ? (nn == 2 || nn == 3) : (nn == 3);
-	      population[w_update] += nextWorld[i][j];
-                   
-           }
+         // Print the number of threads being used in the parallel region
+        int num_threads = omp_get_num_threads();
+        int thread_id = omp_get_thread_num();
+        
+        if (thread_id == 0) {
+            printf("Number of threads: %d\n", num_threads);
+        }
 
-      
+        // Each thread prints its ID (only once to avoid too much output)
+        printf("Thread %d is processing\n", thread_id);
+
+        #pragma omp single
+        {
+            for(t=0;t<maxiter && population[w_plot];t++){
+                // task 1 update the grid
+                #pragma omp task
+                {
+                    population[w_update] = 0;
+                        /* Use currWorld to compute the updates and store it in nextWorld */
+                    #pragma omp parallel for collapse(2) reduction(+:population[w_update])
+                    for(i=1;i<nx-1;i++)
+                            for(j=1;j<ny-1;j++) {
+                        int nn = currWorld[i+1][j] + currWorld[i-1][j] + 
+                                currWorld[i][j+1] + currWorld[i][j-1] + 
+                                currWorld[i+1][j+1] + currWorld[i-1][j-1] + 
+                                currWorld[i-1][j+1] + currWorld[i+1][j-1];
+                        
+                        nextWorld[i][j] = currWorld[i][j] ? (nn == 2 || nn == 3) : (nn == 3);
+                        population[w_update] += nextWorld[i][j];
+                        }
+                    
       
       /* Pointer Swap : nextWorld <-> currWorld */
       tmesh = nextWorld;
       nextWorld = currWorld;
       currWorld = tmesh;
-      
+                }
+    // Task 2 plot the GUI
       /* Start the new plot */
-      if(!disable_display)
-	MeshPlot(t,nx,ny,currWorld);
-      
-      if (s_step){
-	printf("Finished with step %d\n",t);
-	printf("Press enter to continue.\n");
-	getchar();
-      }
-      
+    #pragma omp task
+    {
+        printf("ploting GUI ");
+        if(!disable_display)
+	        MeshPlot(t,nx,ny,currWorld);
+        if (s_step){
+            printf("Finished with step %d\n",t);
+            printf("Press enter to continue.\n");
+            getchar();
+        }
+    } 
+    #pragma omp taskwait
+            
+            }
+        }
     }
     double t1 = getTime(); 
     printf("Running time for the iterations: %f sec.\n",t1-t0);
@@ -182,4 +204,5 @@ int main(int argc,char **argv)
     free(currWorld);
 
     return(0);
+
 }
